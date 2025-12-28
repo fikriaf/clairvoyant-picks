@@ -198,6 +198,8 @@ export default function CryptoAnalysisModal({ isOpen, onClose, recommendation, o
   const holdDisplayText = existingPosition ? 'HOLD (Keep Position)' : 'WAIT (No Clear Signal)';
 
   const handleTradeClick = (action: 'BUY' | 'SELL') => {
+    console.log('handleTradeClick:', action, 'showTradeForm:', showTradeForm, 'signal:', signal.action);
+    
     if (!showTradeForm) {
       setShowTradeForm(true);
       setSelectedAction(action);
@@ -206,12 +208,15 @@ export default function CryptoAnalysisModal({ isOpen, onClose, recommendation, o
 
     const signalAction = signal.action;
     if (signalAction !== action && signalAction !== 'HOLD') {
+      console.log('Showing warning - signal mismatch');
       setShowWarning(true);
       setPendingAction(action);
     } else if (signalAction === 'HOLD') {
+      console.log('Showing warning - signal is HOLD');
       setShowWarning(true);
       setPendingAction(action);
     } else {
+      console.log('Direct trade - signal matches');
       addToPortfolio(action);
     }
   };
@@ -228,6 +233,20 @@ export default function CryptoAnalysisModal({ isOpen, onClose, recommendation, o
     setIsAddingPosition(true);
     setAddError('');
 
+    const payload = {
+      symbol: recommendation.symbol,
+      name: recommendation.name,
+      side: action,
+      entry_price: currentPrice,
+      quantity,
+      stop_loss: customStopLoss,
+      take_profit: customTakeProfit,
+      balance_type: balanceType,
+      notes: `Signal: ${signal.action}, Confidence: ${(signal.confidence * 100).toFixed(0)}%`
+    };
+    
+    console.log('Adding position with payload:', payload);
+
     try {
       const token = localStorage.getItem('token');
       if (!token) {
@@ -241,28 +260,22 @@ export default function CryptoAnalysisModal({ isOpen, onClose, recommendation, o
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          symbol: recommendation.symbol,
-          name: recommendation.name,
-          side: action,
-          entry_price: currentPrice,
-          quantity,
-          stop_loss: customStopLoss,
-          take_profit: customTakeProfit,
-          balance_type: balanceType,
-          notes: `Signal: ${signal.action}, Confidence: ${(signal.confidence * 100).toFixed(0)}%`
-        })
+        body: JSON.stringify(payload)
       });
 
       if (res.ok) {
+        const result = await res.json();
+        console.log('Position created:', result);
         await refreshUser();
         onPositionAdded?.();
         onClose();
       } else {
         const data = await res.json();
+        console.error('Failed to create position:', data);
         setAddError(data.detail || 'Failed to add position');
       }
     } catch (e: any) {
+      console.error('Error creating position:', e);
       setAddError(e.message || 'Failed to add position');
     } finally {
       setIsAddingPosition(false);
