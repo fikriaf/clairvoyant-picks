@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,7 +18,7 @@ const tips = {
   macd: 'Moving Average Convergence Divergence. Positive = bullish momentum, negative = bearish.',
   bollingerB: 'Bollinger %B shows price position within bands. Above 1 = overbought, below 0 = oversold.',
   emaTrend: 'EMA crossover trend. Bullish when short EMA > long EMA.',
-  upsideProb: 'Probability that price will be higher in 24 hours based on Monte Carlo simulation.',
+  upsideProb: 'Probability that price will be higher based on Monte Carlo simulation.',
   expectedReturn: 'Average expected return from 5000+ simulated price paths.',
   var95: 'Value at Risk: Worst expected price in 95% of scenarios.',
   volatility: 'Annualized price volatility. Higher = more risk and potential reward.',
@@ -31,6 +31,17 @@ const tips = {
   atr: 'Average True Range. Measures volatility in dollar terms.',
   confidence: 'AI confidence in the signal based on indicator agreement.',
   strength: 'Signal strength based on how many indicators agree.',
+  // Market Sentiment
+  fundingRate: 'Funding rate from perpetual futures. Positive = longs pay shorts, negative = shorts pay longs.',
+  longRatio: 'Percentage of traders holding long positions. High ratio may indicate crowded trade.',
+  crowdSentiment: 'Overall market sentiment based on positioning data.',
+  contrarianSignal: 'Signal to trade against the crowd when positioning is extreme.',
+  // Volume
+  volumeTrend: 'Current volume compared to average. HIGH = above average, LOW = below average.',
+  volumeRatio: 'Ratio of current volume to moving average volume.',
+  // Pro Trader
+  proTrader: 'Signal based on professional/institutional trading patterns.',
+  retailTrap: 'Warning: Retail traders may be trapped in wrong direction.',
 };
 
 interface CryptoRecommendation {
@@ -55,6 +66,7 @@ interface CryptoRecommendation {
     expected_return_pct?: number;
     var_95?: number;
     volatility_annual?: number;
+    timeframe_minutes?: number;
     price_targets?: {
       bull_case?: number;
       base_case?: number;
@@ -71,6 +83,15 @@ interface CryptoRecommendation {
     ema_50?: number;
     atr?: number;
     atr_pct?: number;
+    volume_sma?: number;
+    volume_ratio?: number;
+    volume_trend?: string;
+  };
+  market_sentiment?: {
+    funding_rate?: number;
+    long_ratio?: number;
+    crowd_sentiment?: string;
+    contrarian_signal?: string;
   };
   ai_analysis?: string;
   news_articles?: Array<{
@@ -194,6 +215,19 @@ export default function CryptoAnalysisModal({ isOpen, onClose, recommendation, o
   const newsArticles = recommendation.news_articles ?? [];
   const aiAnalysis = recommendation.ai_analysis ?? '';
   const createdAt = recommendation.created_at ? new Date(recommendation.created_at) : null;
+  const marketSentiment = recommendation.market_sentiment ?? {};
+  const signalReasons = signal.reasons ?? [];
+
+  // Check for special signals
+  const hasRetailTrap = signalReasons.some(r => r.includes('RETAIL_TRAP'));
+  const hasContrarianSignal = signalReasons.some(r => r.includes('CONTRARIAN'));
+  const hasProTraderSignal = signal.indicator_signals?.['PRO_TRADER'] !== undefined;
+
+  // Timeframe for Monte Carlo
+  const timeframeMinutes = simulation.timeframe_minutes ?? 1440; // default 24h
+  const timeframeLabel = timeframeMinutes >= 60 
+    ? `${Math.round(timeframeMinutes / 60)}H` 
+    : `${timeframeMinutes}M`;
 
   const holdDisplayText = existingPosition ? 'HOLD (Keep Position)' : 'WAIT (No Clear Signal)';
 
@@ -387,12 +421,90 @@ export default function CryptoAnalysisModal({ isOpen, onClose, recommendation, o
                     {indicators.ema_trend ?? '-'}
                   </p>
                 </div>
+                {indicators.volume_trend && (
+                  <div className="col-span-2">
+                    <p className="text-muted-foreground text-xs flex items-center">
+                      Volume Trend <InfoTooltip text={tips.volumeTrend} />
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <span className={cn(
+                        'font-medium',
+                        indicators.volume_trend === 'HIGH' ? 'text-success' : indicators.volume_trend === 'LOW' ? 'text-destructive' : ''
+                      )}>
+                        {indicators.volume_trend}
+                      </span>
+                      {indicators.volume_ratio && (
+                        <span className="text-xs text-muted-foreground">
+                          ({indicators.volume_ratio.toFixed(2)}x avg)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
+            {/* Market Sentiment */}
+            {(marketSentiment.crowd_sentiment || marketSentiment.funding_rate !== undefined) && (
+              <div className="bg-muted/30 rounded-lg p-3">
+                <h4 className="text-xs text-muted-foreground mb-2">MARKET SENTIMENT</h4>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  {marketSentiment.crowd_sentiment && (
+                    <div>
+                      <p className="text-muted-foreground text-xs flex items-center">
+                        Crowd Sentiment <InfoTooltip text={tips.crowdSentiment} />
+                      </p>
+                      <p className={cn(
+                        'font-medium',
+                        marketSentiment.crowd_sentiment === 'BULLISH' ? 'text-success' : 
+                        marketSentiment.crowd_sentiment === 'BEARISH' ? 'text-destructive' : ''
+                      )}>
+                        {marketSentiment.crowd_sentiment}
+                      </p>
+                    </div>
+                  )}
+                  {marketSentiment.funding_rate !== undefined && (
+                    <div>
+                      <p className="text-muted-foreground text-xs flex items-center">
+                        Funding Rate <InfoTooltip text={tips.fundingRate} />
+                      </p>
+                      <p className={cn(
+                        'font-medium',
+                        marketSentiment.funding_rate > 0 ? 'text-success' : 'text-destructive'
+                      )}>
+                        {(marketSentiment.funding_rate * 100).toFixed(4)}%
+                      </p>
+                    </div>
+                  )}
+                  {marketSentiment.long_ratio !== undefined && (
+                    <div>
+                      <p className="text-muted-foreground text-xs flex items-center">
+                        Long Ratio <InfoTooltip text={tips.longRatio} />
+                      </p>
+                      <p className="font-medium">{(marketSentiment.long_ratio * 100).toFixed(1)}%</p>
+                    </div>
+                  )}
+                  {marketSentiment.contrarian_signal && (
+                    <div>
+                      <p className="text-muted-foreground text-xs flex items-center">
+                        Contrarian <InfoTooltip text={tips.contrarianSignal} />
+                      </p>
+                      <p className={cn(
+                        'font-medium',
+                        marketSentiment.contrarian_signal === 'BUY' ? 'text-success' : 
+                        marketSentiment.contrarian_signal === 'SELL' ? 'text-destructive' : 'text-warning'
+                      )}>
+                        {marketSentiment.contrarian_signal}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Monte Carlo */}
             <div className="bg-muted/30 rounded-lg p-3">
-              <h4 className="text-xs text-muted-foreground mb-2">MONTE CARLO (24H)</h4>
+              <h4 className="text-xs text-muted-foreground mb-2">MONTE CARLO ({timeframeLabel})</h4>
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div>
                   <p className="text-muted-foreground text-xs flex items-center">
@@ -441,6 +553,18 @@ export default function CryptoAnalysisModal({ isOpen, onClose, recommendation, o
               )}
             </div>
 
+            {/* Retail Trap Warning */}
+            {hasRetailTrap && (
+              <div className="bg-destructive/20 border border-destructive/50 rounded-lg p-3">
+                <p className="text-destructive text-sm font-medium flex items-center gap-2">
+                  ⚠️ RETAIL TRAP DETECTED <InfoTooltip text={tips.retailTrap} />
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Retail traders may be positioned incorrectly. Consider contrarian approach.
+                </p>
+              </div>
+            )}
+
             {/* Signal Breakdown */}
             {signal.indicator_signals && (
               <div className="bg-muted/30 rounded-lg p-3">
@@ -448,11 +572,36 @@ export default function CryptoAnalysisModal({ isOpen, onClose, recommendation, o
                 <div className="space-y-1 text-xs">
                   {Object.entries(signal.indicator_signals).map(([ind, val]) => (
                     <div key={ind} className="flex justify-between">
-                      <span className="text-muted-foreground">{ind}</span>
-                      <span>{val}</span>
+                      <span className={cn(
+                        'text-muted-foreground',
+                        ind === 'PRO_TRADER' && 'text-blue-400 font-medium',
+                        ind === 'CONTRARIAN' && 'text-purple-400 font-medium'
+                      )}>
+                        {ind === 'PRO_TRADER' && '🎯 '}
+                        {ind === 'CONTRARIAN' && '🔄 '}
+                        {ind}
+                      </span>
+                      <span className={cn(
+                        val === 'BUY' && 'text-success',
+                        val === 'SELL' && 'text-destructive',
+                        val === 'NEUTRAL' && 'text-warning'
+                      )}>
+                        {val}
+                      </span>
                     </div>
                   ))}
                 </div>
+                {/* Signal Reasons */}
+                {signalReasons.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-muted">
+                    <p className="text-xs text-muted-foreground mb-1">Reasons:</p>
+                    <div className="space-y-1">
+                      {signalReasons.slice(0, 5).map((reason, i) => (
+                        <p key={i} className="text-xs text-foreground">• {reason}</p>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
